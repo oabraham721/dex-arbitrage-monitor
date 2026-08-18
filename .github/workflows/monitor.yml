@@ -20,7 +20,7 @@ jobs:
         env:
           RPC_URL: ${{ secrets.RPC_URL }}
           TRADE_SIZE_USDC: "100"
-          MIN_NET_PROFIT_USDC: "0.25"
+          MIN_NET_PROFIT_USDC: "0.05"
           POLL_INTERVAL_MS: "60000"
           GAS_OVERHEAD: "100000"
           EXECUTION_COST_BUFFER_USDC: "0.02"
