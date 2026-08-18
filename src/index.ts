@@ -72,7 +72,7 @@ function printOpportunity(opportunity: Opportunity): void {
   );
 }
 
-const RPC_DELAY = 500; // ms between RPC calls to avoid public endpoint rate limits
+const RPC_DELAY = 50; // ms between RPC calls
 const delay = () => new Promise((r) => setTimeout(r, RPC_DELAY));
 
 async function scan(): Promise<void> {
