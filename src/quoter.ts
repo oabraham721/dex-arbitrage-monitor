@@ -6,8 +6,9 @@ import {
   type Transport,
 } from "viem";
 import { base } from "viem/chains";
+import type { QuoterType } from "./config.js";
 
-const quoterV2Abi = [
+const uniV3Abi = [
   {
     type: "function",
     name: "quoteExactInputSingle",
@@ -34,6 +35,33 @@ const quoterV2Abi = [
   },
 ] as const;
 
+const aerodromeAbi = [
+  {
+    type: "function",
+    name: "quoteExactInputSingle",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "params",
+        type: "tuple",
+        components: [
+          { name: "tokenIn", type: "address" },
+          { name: "tokenOut", type: "address" },
+          { name: "amountIn", type: "uint256" },
+          { name: "tickSpacing", type: "int24" },
+          { name: "sqrtPriceLimitX96", type: "uint160" },
+        ],
+      },
+    ],
+    outputs: [
+      { name: "amountOut", type: "uint256" },
+      { name: "sqrtPriceX96After", type: "uint160" },
+      { name: "initializedTicksCrossed", type: "uint32" },
+      { name: "gasEstimate", type: "uint256" },
+    ],
+  },
+] as const;
+
 export type Quote = {
   amountOut: bigint;
   gasEstimate: bigint;
@@ -45,18 +73,24 @@ export async function getQuote(
   tokenIn: Address,
   tokenOut: Address,
   amountIn: bigint,
-  fee: number,
+  param: number,
+  quoterType: QuoterType,
 ): Promise<Quote> {
+  const abi = quoterType === "aerodrome" ? aerodromeAbi : uniV3Abi;
+  const args = quoterType === "aerodrome"
+    ? [{ tokenIn, tokenOut, amountIn, tickSpacing: param, sqrtPriceLimitX96: 0n }]
+    : [{ tokenIn, tokenOut, amountIn, fee: param, sqrtPriceLimitX96: 0n }];
+
   const callData = encodeFunctionData({
-    abi: quoterV2Abi,
+    abi,
     functionName: "quoteExactInputSingle",
-    args: [{ tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96: 0n }],
+    args: args as any,
   });
   const response = await client.call({ to: quoter, data: callData });
   if (!response.data) throw new Error("Quoter returned no data");
 
   const [amountOut, , , gasEstimate] = decodeFunctionResult({
-    abi: quoterV2Abi,
+    abi,
     functionName: "quoteExactInputSingle",
     data: response.data,
   });

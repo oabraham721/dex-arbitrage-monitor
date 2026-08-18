@@ -13,6 +13,7 @@ function dollars(value: bigint): number {
 }
 
 export type NotionOpportunity = {
+  pair: string;
   buy: string;
   sell: string;
   netProfit: bigint;
@@ -45,7 +46,7 @@ export async function logToNotion(
         Timestamp: { date: { start: new Date().toISOString() } },
         Status: { select: { name: "detected" } },
         Chain: { select: { name: "Base" } },
-        Pair: { select: { name: "WETH/USDC" } },
+        Pair: { select: { name: opportunity.pair } },
       },
     });
     console.log(`  Logged to Notion: ${opportunity.buy} → ${opportunity.sell}`);
