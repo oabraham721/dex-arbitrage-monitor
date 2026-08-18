@@ -66,13 +66,14 @@ async function scan(): Promise<void> {
   const buyIndex: { pair: Pair; route: Route }[] = [];
 
   for (const pair of config.pairs) {
+    const amountIn = pair.decimalsA === 18 ? config.tradeSizeWeth : config.tradeSize;
     for (const route of config.routes) {
       if (isDead(pair, route)) continue;
       buyRequests.push({
         quoter: route.quoter,
         tokenIn: pair.tokenA,
         tokenOut: pair.tokenB,
-        amountIn: config.tradeSize,
+        amountIn,
         param: route.param,
         quoterType: route.quoterType,
         pool: route.pool,
@@ -140,7 +141,7 @@ async function scan(): Promise<void> {
     recordResult(pair, sellRoute, sellResults[i] !== null);
   }
 
-  // Phase 3: calculate profits
+  // Phase 3: calculate profits (all values normalized to USDC 6 decimals)
   const results: Opportunity[] = [];
   for (let i = 0; i < sellResults.length; i++) {
     const sellQuote = sellResults[i];
@@ -150,16 +151,29 @@ async function scan(): Promise<void> {
     const gasUnits = buyQuote.gasEstimate + sellQuote.gasEstimate + config.gasOverhead;
     const gasInWei = gasUnits * gasPrice;
     const gasCostUsdc = ethPriceValid ? (gasInWei * config.tradeSize) / wethBest : 0n;
-    const grossProfit = sellQuote.amountOut - config.tradeSize;
-    const netProfit = grossProfit - gasCostUsdc - config.executionCostBuffer;
+
+    const isWethPair = pair.decimalsA === 18;
+    const tradeSize = isWethPair ? config.tradeSizeWeth : config.tradeSize;
+    const grossProfitNative = sellQuote.amountOut - tradeSize;
+    const grossBps = (grossProfitNative * 10_000n) / tradeSize;
+
+    // Convert WETH-denominated profit to USDC; USDC pairs are already in USDC
+    const grossProfitUsdc = isWethPair && ethPriceValid
+      ? (grossProfitNative * config.tradeSize) / wethBest
+      : grossProfitNative;
+    const grossOutputUsdc = isWethPair && ethPriceValid
+      ? (sellQuote.amountOut * config.tradeSize) / wethBest
+      : sellQuote.amountOut;
+
+    const netProfit = grossProfitUsdc - gasCostUsdc - config.executionCostBuffer;
     results.push({
       pair: pair.name,
       buy: buyRoute.name,
       sell: sellRoute.name,
-      grossOutput: sellQuote.amountOut,
+      grossOutput: grossOutputUsdc,
       gasCost: gasCostUsdc,
       netProfit,
-      grossBps: (grossProfit * 10_000n) / config.tradeSize,
+      grossBps,
     });
   }
 

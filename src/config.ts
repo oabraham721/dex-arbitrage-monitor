@@ -15,6 +15,7 @@ export type Pair = {
   name: string;
   tokenA: Address;
   tokenB: Address;
+  decimalsA: number;
 };
 
 const UNISWAP_QUOTER = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a";
@@ -46,13 +47,17 @@ const AERO = getAddress("0x940181a94A35A4569E4529A3CDFb74e38FD98631");
 const DAI = getAddress("0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb");
 
 const defaultPairs: Pair[] = [
-  { name: "WETH/USDC", tokenA: USDC, tokenB: WETH },
-  { name: "cbBTC/USDC", tokenA: USDC, tokenB: CBBTC },
-  { name: "USDT/USDC", tokenA: USDC, tokenB: USDT },
-  { name: "wstETH/USDC", tokenA: USDC, tokenB: WSTETH },
-  { name: "cbETH/USDC", tokenA: USDC, tokenB: CBETH },
-  { name: "AERO/USDC", tokenA: USDC, tokenB: AERO },
-  { name: "DAI/USDC", tokenA: USDC, tokenB: DAI },
+  { name: "WETH/USDC", tokenA: USDC, tokenB: WETH, decimalsA: 6 },
+  { name: "cbBTC/USDC", tokenA: USDC, tokenB: CBBTC, decimalsA: 6 },
+  { name: "USDT/USDC", tokenA: USDC, tokenB: USDT, decimalsA: 6 },
+  { name: "wstETH/USDC", tokenA: USDC, tokenB: WSTETH, decimalsA: 6 },
+  { name: "cbETH/USDC", tokenA: USDC, tokenB: CBETH, decimalsA: 6 },
+  { name: "AERO/USDC", tokenA: USDC, tokenB: AERO, decimalsA: 6 },
+  { name: "DAI/USDC", tokenA: USDC, tokenB: DAI, decimalsA: 6 },
+  { name: "wstETH/WETH", tokenA: WETH, tokenB: WSTETH, decimalsA: 18 },
+  { name: "cbETH/WETH", tokenA: WETH, tokenB: CBETH, decimalsA: 18 },
+  { name: "cbBTC/WETH", tokenA: WETH, tokenB: CBBTC, decimalsA: 18 },
+  { name: "AERO/WETH", tokenA: WETH, tokenB: AERO, decimalsA: 18 },
 ];
 
 function numberFromEnv(name: string, fallback: number): number {
@@ -70,6 +75,7 @@ function booleanFromEnv(name: string): boolean {
 export const config = {
   rpcUrl: process.env.RPC_URL ?? "https://mainnet.base.org",
   tradeSize: parseUnits(process.env.TRADE_SIZE_USDC ?? "100", 6),
+  tradeSizeWeth: parseUnits(process.env.TRADE_SIZE_WETH ?? "0.03", 18),
   minimumProfit: parseUnits(process.env.MIN_NET_PROFIT_USDC ?? "0.25", 6),
   executionCostBuffer: parseUnits(process.env.EXECUTION_COST_BUFFER_USDC ?? "0.02", 6),
   pollIntervalMs: numberFromEnv("POLL_INTERVAL_MS", 2_000),

@@ -6,8 +6,7 @@ const notion = config.notionDatabaseId
   ? new Client({ auth: process.env.NOTION_API_KEY })
   : null;
 
-let seqInBlock = 0;
-let lastLoggedBlock = 0n;
+let seqGlobal = 0;
 
 function dollars(value: bigint): number {
   return Number(formatUnits(value, 6));
@@ -29,12 +28,8 @@ export async function logToNotion(
 ): Promise<void> {
   if (!notion || !config.notionDatabaseId) return;
 
-  if (blockNumber !== lastLoggedBlock) {
-    seqInBlock = 0;
-    lastLoggedBlock = blockNumber;
-  }
-  seqInBlock++;
-  const title = `Block ${blockNumber}${seqInBlock > 1 ? ` #${seqInBlock}` : ""}`;
+  seqGlobal++;
+  const title = `Opportunity #${seqGlobal}`;
   const flashProfit = (opportunity.netProfit * 1_000_000n * 1_000_000n) / config.tradeSize;
 
   try {
