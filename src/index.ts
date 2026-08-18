@@ -75,6 +75,7 @@ async function scan(): Promise<void> {
         amountIn: config.tradeSize,
         param: route.param,
         quoterType: route.quoterType,
+        pool: route.pool,
       });
       buyIndex.push({ pair, route });
     }
@@ -125,6 +126,7 @@ async function scan(): Promise<void> {
         amountIn: buyQuote.amountOut,
         param: sellRoute.param,
         quoterType: sellRoute.quoterType,
+        pool: sellRoute.pool,
       });
       sellIndex.push({ pair, buyRoute, sellRoute, buyQuote });
     }

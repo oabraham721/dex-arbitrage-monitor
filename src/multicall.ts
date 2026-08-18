@@ -107,6 +107,23 @@ const aerodromeAbi = [
   },
 ] as const;
 
+const balancerRouterAbi = [
+  {
+    type: "function",
+    name: "querySwapSingleTokenExactIn",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "tokenIn", type: "address" },
+      { name: "tokenOut", type: "address" },
+      { name: "exactAmountIn", type: "uint256" },
+      { name: "sender", type: "address" },
+      { name: "userData", type: "bytes" },
+    ],
+    outputs: [{ name: "amountOut", type: "uint256" }],
+  },
+] as const;
+
 export type Quote = {
   amountOut: bigint;
   gasEstimate: bigint;
@@ -119,9 +136,19 @@ export type QuoteRequest = {
   amountIn: bigint;
   param: number;
   quoterType: QuoterType;
+  pool?: Address;
 };
 
 function encodeQuoteCall(req: QuoteRequest): { target: Address; callData: `0x${string}` } {
+  if (req.quoterType === "balancer") {
+    const callData = encodeFunctionData({
+      abi: balancerRouterAbi,
+      functionName: "querySwapSingleTokenExactIn",
+      args: [req.pool!, req.tokenIn, req.tokenOut, req.amountIn, "0x0000000000000000000000000000000000000000", "0x"],
+    });
+    return { target: req.quoter, callData };
+  }
+
   const abi = req.quoterType === "aerodrome" ? aerodromeAbi : uniV3Abi;
   const args = req.quoterType === "aerodrome"
     ? [{ tokenIn: req.tokenIn, tokenOut: req.tokenOut, amountIn: req.amountIn, tickSpacing: req.param, sqrtPriceLimitX96: 0n }]
@@ -132,6 +159,15 @@ function encodeQuoteCall(req: QuoteRequest): { target: Address; callData: `0x${s
 }
 
 function decodeQuoteResult(data: `0x${string}`, quoterType: QuoterType): Quote {
+  if (quoterType === "balancer") {
+    const amountOut = decodeFunctionResult({
+      abi: balancerRouterAbi,
+      functionName: "querySwapSingleTokenExactIn",
+      data,
+    }) as unknown as bigint;
+    return { amountOut, gasEstimate: 150_000n }; // Balancer doesn't return gas estimate; use conservative default
+  }
+
   const abi = quoterType === "aerodrome" ? aerodromeAbi : uniV3Abi;
   const [amountOut, , , gasEstimate] = decodeFunctionResult({
     abi,
