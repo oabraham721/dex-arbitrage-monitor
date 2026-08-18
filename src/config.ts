@@ -61,7 +61,7 @@ export const config = {
   tradeSize: parseUnits(process.env.TRADE_SIZE_USDC ?? "100", 6),
   minimumProfit: parseUnits(process.env.MIN_NET_PROFIT_USDC ?? "0.25", 6),
   executionCostBuffer: parseUnits(process.env.EXECUTION_COST_BUFFER_USDC ?? "0.02", 6),
-  pollIntervalMs: numberFromEnv("POLL_INTERVAL_MS", 12_000),
+  pollIntervalMs: numberFromEnv("POLL_INTERVAL_MS", 2_000),
   gasOverhead: BigInt(Math.floor(numberFromEnv("GAS_OVERHEAD", 100_000))),
   showAll: booleanFromEnv("SHOW_ALL"),
   once: booleanFromEnv("ONCE"),

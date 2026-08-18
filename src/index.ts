@@ -2,7 +2,7 @@ import { createPublicClient, formatUnits, http } from "viem";
 import { base } from "viem/chains";
 import { config, type Pair, type Route } from "./config.js";
 import { logToNotion } from "./notion.js";
-import { getQuote } from "./quoter.js";
+import { batchQuote, batchQuoteWithMeta, type Quote, type QuoteRequest } from "./multicall.js";
 
 type Opportunity = {
   pair: string;
@@ -16,45 +16,33 @@ type Opportunity = {
 
 const client = createPublicClient({
   chain: base,
-  transport: http(config.rpcUrl, { retryCount: 2, timeout: 10_000 }),
+  cacheTime: 0,
+  transport: http(config.rpcUrl, { retryCount: 2, timeout: 20_000 }),
 });
 
-async function evaluate(pair: Pair, buy: Route, sell: Route, gasPrice: bigint): Promise<Opportunity> {
-  const first = await getQuote(
-    client,
-    buy.quoter,
-    pair.tokenA,
-    pair.tokenB,
-    config.tradeSize,
-    buy.param,
-    buy.quoterType,
-  );
-  const second = await getQuote(
-    client,
-    sell.quoter,
-    pair.tokenB,
-    pair.tokenA,
-    first.amountOut,
-    sell.param,
-    sell.quoterType,
-  );
+// Dead pool cache: skip route+pair combos that fail N times in a row
+const DEAD_THRESHOLD = 5;
+const failCounts = new Map<string, number>();
 
-  const gasUnits = first.gasEstimate + second.gasEstimate + config.gasOverhead;
-  const gasInWei = gasUnits * gasPrice;
-  const gasCostUsdc = (gasInWei * second.amountOut) / first.amountOut / 1_000_000_000_000n;
-  const grossProfit = second.amountOut - config.tradeSize;
-  const netProfit = grossProfit - gasCostUsdc - config.executionCostBuffer;
-
-  return {
-    pair: pair.name,
-    buy: buy.name,
-    sell: sell.name,
-    grossOutput: second.amountOut,
-    gasCost: gasCostUsdc,
-    netProfit,
-    grossBps: (grossProfit * 10_000n) / config.tradeSize,
-  };
+function poolKey(pair: Pair, route: Route): string {
+  return `${pair.name}:${route.name}`;
 }
+
+function isDead(pair: Pair, route: Route): boolean {
+  return (failCounts.get(poolKey(pair, route)) ?? 0) >= DEAD_THRESHOLD;
+}
+
+function recordResult(pair: Pair, route: Route, success: boolean): void {
+  const key = poolKey(pair, route);
+  if (success) {
+    failCounts.delete(key);
+  } else {
+    failCounts.set(key, (failCounts.get(key) ?? 0) + 1);
+  }
+}
+
+// Pre-filter: skip buys that are >30 bps worse than the best for that pair
+const BUY_FILTER_BPS = 30n;
 
 function usdc(value: bigint): string {
   return `$${Number(formatUnits(value, 6)).toFixed(4)}`;
@@ -72,60 +60,113 @@ function printOpportunity(opportunity: Opportunity): void {
   );
 }
 
-const RPC_DELAY = 50; // ms between RPC calls
-const delay = () => new Promise((r) => setTimeout(r, RPC_DELAY));
-
 async function scan(): Promise<void> {
-  const blockNumber = await client.getBlockNumber();
-  await delay();
-  const gasPrice = await client.getGasPrice();
-  await delay();
-  const results: Opportunity[] = [];
+  // Phase 1: batch all buy quotes + metadata in one RPC call
+  const buyRequests: QuoteRequest[] = [];
+  const buyIndex: { pair: Pair; route: Route }[] = [];
 
   for (const pair of config.pairs) {
-    const buyQuotes = new Map<Route, { amountOut: bigint; gasEstimate: bigint }>();
     for (const route of config.routes) {
-      try {
-        const quote = await getQuote(client, route.quoter, pair.tokenA, pair.tokenB, config.tradeSize, route.param, route.quoterType);
-        buyQuotes.set(route, quote);
-      } catch {
-        // Pool doesn't exist for this route+pair
-      }
-      await delay();
+      if (isDead(pair, route)) continue;
+      buyRequests.push({
+        quoter: route.quoter,
+        tokenIn: pair.tokenA,
+        tokenOut: pair.tokenB,
+        amountIn: config.tradeSize,
+        param: route.param,
+        quoterType: route.quoterType,
+      });
+      buyIndex.push({ pair, route });
     }
+  }
 
-    for (const [buyRoute, buyQuote] of buyQuotes) {
-      for (const sellRoute of config.routes) {
-        if (sellRoute === buyRoute) continue;
-        try {
-          const sellQuote = await getQuote(client, sellRoute.quoter, pair.tokenB, pair.tokenA, buyQuote.amountOut, sellRoute.param, sellRoute.quoterType);
-          const gasUnits = buyQuote.gasEstimate + sellQuote.gasEstimate + config.gasOverhead;
-          const gasInWei = gasUnits * gasPrice;
-          const gasCostUsdc = (gasInWei * sellQuote.amountOut) / buyQuote.amountOut / 1_000_000_000_000n;
-          const grossProfit = sellQuote.amountOut - config.tradeSize;
-          const netProfit = grossProfit - gasCostUsdc - config.executionCostBuffer;
-          results.push({
-            pair: pair.name,
-            buy: buyRoute.name,
-            sell: sellRoute.name,
-            grossOutput: sellQuote.amountOut,
-            gasCost: gasCostUsdc,
-            netProfit,
-            grossBps: (grossProfit * 10_000n) / config.tradeSize,
-          });
-        } catch {
-          // Pool doesn't exist for this route+pair
-        }
-        await delay();
-      }
+  const { blockNumber, quotes: buyResults } = await batchQuoteWithMeta(client, buyRequests);
+  const gasPrice = await client.getGasPrice();
+
+  // Update dead pool cache from buy results
+  for (let i = 0; i < buyResults.length; i++) {
+    const { pair, route } = buyIndex[i]!;
+    recordResult(pair, route, buyResults[i] !== null);
+  }
+
+  // Pre-filter: find best buy per pair, skip any >30 bps worse
+  const bestBuyPerPair = new Map<string, bigint>();
+  for (let i = 0; i < buyResults.length; i++) {
+    const quote = buyResults[i];
+    if (!quote) continue;
+    const pairName = buyIndex[i]!.pair.name;
+    const current = bestBuyPerPair.get(pairName) ?? 0n;
+    if (quote.amountOut > current) bestBuyPerPair.set(pairName, quote.amountOut);
+  }
+
+  // Derive ETH price from WETH/USDC pair for gas cost conversion
+  const wethBest = bestBuyPerPair.get("WETH/USDC") ?? 0n;
+  const ethPriceValid = wethBest > 0n;
+
+  // Phase 2: build sell requests from filtered buys
+  const sellRequests: QuoteRequest[] = [];
+  const sellIndex: { pair: Pair; buyRoute: Route; sellRoute: Route; buyQuote: Quote }[] = [];
+
+  for (let i = 0; i < buyResults.length; i++) {
+    const buyQuote = buyResults[i];
+    if (!buyQuote) continue;
+    const { pair, route: buyRoute } = buyIndex[i]!;
+
+    const best = bestBuyPerPair.get(pair.name)!;
+    if ((best - buyQuote.amountOut) * 10_000n / best > BUY_FILTER_BPS) continue;
+
+    for (const sellRoute of config.routes) {
+      if (sellRoute === buyRoute) continue;
+      if (isDead(pair, sellRoute)) continue;
+      sellRequests.push({
+        quoter: sellRoute.quoter,
+        tokenIn: pair.tokenB,
+        tokenOut: pair.tokenA,
+        amountIn: buyQuote.amountOut,
+        param: sellRoute.param,
+        quoterType: sellRoute.quoterType,
+      });
+      sellIndex.push({ pair, buyRoute, sellRoute, buyQuote });
     }
+  }
+
+  const sellResults = await batchQuote(client, sellRequests);
+
+  // Update dead pool cache from sell results
+  for (let i = 0; i < sellResults.length; i++) {
+    const { pair, sellRoute } = sellIndex[i]!;
+    recordResult(pair, sellRoute, sellResults[i] !== null);
+  }
+
+  // Phase 3: calculate profits
+  const results: Opportunity[] = [];
+  for (let i = 0; i < sellResults.length; i++) {
+    const sellQuote = sellResults[i];
+    if (!sellQuote) continue;
+    const { pair, buyRoute, sellRoute, buyQuote } = sellIndex[i]!;
+
+    const gasUnits = buyQuote.gasEstimate + sellQuote.gasEstimate + config.gasOverhead;
+    const gasInWei = gasUnits * gasPrice;
+    const gasCostUsdc = ethPriceValid ? (gasInWei * config.tradeSize) / wethBest : 0n;
+    const grossProfit = sellQuote.amountOut - config.tradeSize;
+    const netProfit = grossProfit - gasCostUsdc - config.executionCostBuffer;
+    results.push({
+      pair: pair.name,
+      buy: buyRoute.name,
+      sell: sellRoute.name,
+      grossOutput: sellQuote.amountOut,
+      gasCost: gasCostUsdc,
+      netProfit,
+      grossBps: (grossProfit * 10_000n) / config.tradeSize,
+    });
   }
 
   results.sort((left, right) => (left.netProfit > right.netProfit ? -1 : 1));
 
   const profitable = results.filter((result) => result.netProfit >= config.minimumProfit);
   const shown = config.showAll ? results.slice(0, 20) : profitable;
-  console.log(`\n[${new Date().toISOString()}] Base block ${blockNumber} | ${results.length} routes evaluated`);
+  const dead = failCounts.size > 0 ? ` | ${failCounts.size} dead pools cached` : "";
+  console.log(`\n[${new Date().toISOString()}] Base block ${blockNumber} | ${results.length} routes | ${buyRequests.length + sellRequests.length} quotes in 3 RPC calls${dead}`);
   if (profitable.length === 0) console.log("  No net-profitable route at the configured threshold.");
   for (const result of shown) printOpportunity(result);
   await Promise.all(profitable.map((result) => logToNotion(result, blockNumber)));
@@ -140,19 +181,34 @@ async function main(): Promise<void> {
       `; execution buffer ${usdc(config.executionCostBuffer)}.`,
   );
 
-  do {
-    try {
-      await scan();
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : error);
-    }
-    if (!config.once) await new Promise((resolve) => setTimeout(resolve, config.pollIntervalMs));
-  } while (!config.once);
-}
+  if (config.once) {
+    await scan();
+    return;
+  }
 
-process.on("SIGINT", () => {
-  console.log("\nMonitor stopped.");
-  process.exit(0);
-});
+  let lastBlock = 0n;
+  const loop = async () => {
+    while (true) {
+      try {
+        const block = await client.getBlockNumber();
+        if (block > lastBlock) {
+          lastBlock = block;
+          await scan();
+        }
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+      }
+      await new Promise((r) => setTimeout(r, config.pollIntervalMs));
+    }
+  };
+
+  process.on("SIGINT", () => {
+    console.log("\nMonitor stopped.");
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => process.exit(0));
+
+  await loop();
+}
 
 await main();

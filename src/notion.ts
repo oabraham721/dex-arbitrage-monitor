@@ -6,7 +6,8 @@ const notion = config.notionDatabaseId
   ? new Client({ auth: process.env.NOTION_API_KEY })
   : null;
 
-let opportunityCount = 0;
+let seqInBlock = 0;
+let lastLoggedBlock = 0n;
 
 function dollars(value: bigint): number {
   return Number(formatUnits(value, 6));
@@ -28,14 +29,19 @@ export async function logToNotion(
 ): Promise<void> {
   if (!notion || !config.notionDatabaseId) return;
 
+  if (blockNumber !== lastLoggedBlock) {
+    seqInBlock = 0;
+    lastLoggedBlock = blockNumber;
+  }
+  seqInBlock++;
+  const title = `Block ${blockNumber}${seqInBlock > 1 ? ` #${seqInBlock}` : ""}`;
   const flashProfit = (opportunity.netProfit * 1_000_000n * 1_000_000n) / config.tradeSize;
-  opportunityCount++;
 
   try {
     await notion.pages.create({
       parent: { database_id: config.notionDatabaseId },
       properties: {
-        Route: { title: [{ text: { content: `Opportunity #${opportunityCount}` } }] },
+        Route: { title: [{ text: { content: title } }] },
         "Net Profit ($)": { number: dollars(opportunity.netProfit) },
         "Gross (bps)": { number: Number(opportunity.grossBps) },
         "Trade Size ($)": { number: dollars(config.tradeSize) },
