@@ -36,10 +36,12 @@ const defaultRoutes: Route[] = [
 const WETH = getAddress("0x4200000000000000000000000000000000000006");
 const USDC = getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
 const CBBTC = getAddress("0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf");
-const DAI = getAddress("0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb");
+const USDT = getAddress("0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2");
 
 const defaultPairs: Pair[] = [
   { name: "WETH/USDC", tokenA: USDC, tokenB: WETH },
+  { name: "cbBTC/USDC", tokenA: USDC, tokenB: CBBTC },
+  { name: "USDT/USDC", tokenA: USDC, tokenB: USDT },
 ];
 
 function numberFromEnv(name: string, fallback: number): number {
