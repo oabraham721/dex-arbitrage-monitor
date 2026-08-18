@@ -1,6 +1,5 @@
 import { createPublicClient, formatUnits, http } from "viem";
 import { base } from "viem/chains";
-import { sendOpportunityAlert } from "./alerts.js";
 import { config, type Route } from "./config.js";
 import { logToNotion } from "./notion.js";
 import { getQuote } from "./quoter.js";
@@ -92,18 +91,14 @@ async function scan(): Promise<void> {
   console.log(`\n[${new Date().toISOString()}] Base block ${blockNumber}`);
   if (profitable.length === 0) console.log("  No net-profitable route at the configured threshold.");
   for (const result of config.showAll ? results : profitable) printOpportunity(result);
-  await Promise.all(profitable.map((result) => Promise.all([
-    sendOpportunityAlert(result, blockNumber),
-    logToNotion(result, blockNumber),
-  ])));
+  await Promise.all(profitable.map((result) => logToNotion(result, blockNumber)));
 }
 
 async function main(): Promise<void> {
   console.log(
     `Monitoring ${config.routes.length} routes with ${usdc(config.tradeSize)} paper trades` +
       `; minimum net profit ${usdc(config.minimumProfit)}` +
-      `; execution buffer ${usdc(config.executionCostBuffer)}` +
-      `; SMS alerts ${config.sms ? "enabled" : "disabled"}.`,
+      `; execution buffer ${usdc(config.executionCostBuffer)}.`,
   );
 
   do {

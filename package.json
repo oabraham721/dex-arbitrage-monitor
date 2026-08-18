@@ -12,7 +12,6 @@
   "dependencies": {
     "@notionhq/client": "^5.25.2",
     "dotenv": "^16.4.7",
-    "twilio": "^6.1.0",
     "viem": "^2.23.5"
   },
   "devDependencies": {

@@ -26,11 +26,6 @@ jobs:
           EXECUTION_COST_BUFFER_USDC: "0.02"
           SHOW_ALL: "false"
           ONCE: "false"
-          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
-          ALERT_TO_NUMBER: ${{ secrets.ALERT_TO_NUMBER }}
-          ALERT_COOLDOWN_MINUTES: "15"
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
         run: timeout 19800 npx tsx src/index.ts || true

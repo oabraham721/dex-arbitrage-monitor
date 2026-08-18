@@ -32,21 +32,6 @@ function booleanFromEnv(name: string): boolean {
   return process.env[name]?.toLowerCase() === "true";
 }
 
-function parseSmsConfig() {
-  const values = {
-    accountSid: process.env.TWILIO_ACCOUNT_SID,
-    authToken: process.env.TWILIO_AUTH_TOKEN,
-    from: process.env.TWILIO_FROM_NUMBER,
-    to: process.env.ALERT_TO_NUMBER,
-  };
-  const configured = Object.values(values).filter(Boolean).length;
-  if (configured === 0) return null;
-  if (configured !== Object.keys(values).length) {
-    throw new Error("SMS alerts require all TWILIO_* and ALERT_TO_NUMBER settings");
-  }
-  return values as { accountSid: string; authToken: string; from: string; to: string };
-}
-
 function parseRoutes(): Route[] {
   if (!process.env.ROUTES_JSON) return defaultRoutes;
 
@@ -76,8 +61,6 @@ export const config = {
   gasOverhead: BigInt(Math.floor(numberFromEnv("GAS_OVERHEAD", 100_000))),
   showAll: booleanFromEnv("SHOW_ALL"),
   once: booleanFromEnv("ONCE"),
-  sms: parseSmsConfig(),
-  alertCooldownMs: numberFromEnv("ALERT_COOLDOWN_MINUTES", 15) * 60_000,
   notionDatabaseId: process.env.NOTION_DATABASE_ID ?? null,
   routes: parseRoutes(),
   weth: getAddress("0x4200000000000000000000000000000000000006"),
