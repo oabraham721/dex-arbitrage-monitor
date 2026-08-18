@@ -6,6 +6,8 @@ const notion = config.notionDatabaseId
   ? new Client({ auth: process.env.NOTION_API_KEY })
   : null;
 
+let opportunityCount = 0;
+
 function dollars(value: bigint): number {
   return Number(formatUnits(value, 6));
 }
@@ -26,12 +28,13 @@ export async function logToNotion(
   if (!notion || !config.notionDatabaseId) return;
 
   const flashProfit = (opportunity.netProfit * 1_000_000n * 1_000_000n) / config.tradeSize;
+  opportunityCount++;
 
   try {
     await notion.pages.create({
       parent: { database_id: config.notionDatabaseId },
       properties: {
-        Route: { title: [{ text: { content: `${opportunity.buy} → ${opportunity.sell}` } }] },
+        Route: { title: [{ text: { content: `Opportunity #${opportunityCount}` } }] },
         "Net Profit ($)": { number: dollars(opportunity.netProfit) },
         "Gross (bps)": { number: Number(opportunity.grossBps) },
         "Trade Size ($)": { number: dollars(config.tradeSize) },
