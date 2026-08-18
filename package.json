@@ -1,0 +1,23 @@
+{
+  "name": "dex-arbitrage-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "check": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.25.2",
+    "dotenv": "^16.4.7",
+    "twilio": "^6.1.0",
+    "viem": "^2.23.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
