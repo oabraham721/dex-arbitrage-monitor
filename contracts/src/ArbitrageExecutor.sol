@@ -8,6 +8,17 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 contract ArbitrageExecutor {
     using SafeERC20 for IERC20;
 
+    struct ArbParams {
+        address buyRouter;
+        bytes buyCalldata;
+        address sellRouter;
+        bytes sellCalldata;
+        address tokenIn;
+        address tokenOut;
+        uint256 minProfit;
+        uint256 sellAmountInOffset;
+    }
+
     address public immutable owner;
     address public constant MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
 
@@ -34,9 +45,6 @@ contract ArbitrageExecutor {
     }
 
     /// @notice Initiate a flash loan arb. Only callable by owner.
-    /// @param token  The token to borrow (e.g. USDC or WETH).
-    /// @param amount The amount to borrow.
-    /// @param data   ABI-encoded ArbParams for the callback.
     function execute(address token, uint256 amount, bytes calldata data) external onlyOwner {
         IMorpho(MORPHO).flashLoan(token, amount, data);
     }
@@ -45,36 +53,33 @@ contract ArbitrageExecutor {
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
         if (msg.sender != MORPHO) revert NotMorpho();
 
-        (
-            address buyRouter,
-            bytes memory buyCalldata,
-            address sellRouter,
-            bytes memory sellCalldata,
-            address tokenIn,
-            address tokenOut,
-            uint256 minProfit
-        ) = abi.decode(data, (address, bytes, address, bytes, address, address, uint256));
+        ArbParams memory p = abi.decode(data, (ArbParams));
 
-        if (!allowedRouters[buyRouter]) revert RouterNotAllowed();
-        if (!allowedRouters[sellRouter]) revert RouterNotAllowed();
+        if (!allowedRouters[p.buyRouter]) revert RouterNotAllowed();
+        if (!allowedRouters[p.sellRouter]) revert RouterNotAllowed();
 
         // Buy leg: tokenIn → tokenOut
-        IERC20(tokenIn).forceApprove(buyRouter, assets);
-        (bool ok1,) = buyRouter.call(buyCalldata);
+        IERC20(p.tokenIn).forceApprove(p.buyRouter, assets);
+        (bool ok1,) = p.buyRouter.call(p.buyCalldata);
         if (!ok1) revert SwapFailed("buy");
 
-        // Sell leg: tokenOut → tokenIn
-        uint256 tokenOutBal = IERC20(tokenOut).balanceOf(address(this));
-        IERC20(tokenOut).forceApprove(sellRouter, tokenOutBal);
-        (bool ok2,) = sellRouter.call(sellCalldata);
+        // Sell leg: tokenOut → tokenIn, using actual balance from buy
+        uint256 tokenOutBal = IERC20(p.tokenOut).balanceOf(address(this));
+        IERC20(p.tokenOut).forceApprove(p.sellRouter, tokenOutBal);
+        {
+            bytes memory sc = p.sellCalldata;
+            uint256 offset = p.sellAmountInOffset;
+            assembly { mstore(add(add(sc, 32), offset), tokenOutBal) }
+        }
+        (bool ok2,) = p.sellRouter.call(p.sellCalldata);
         if (!ok2) revert SwapFailed("sell");
 
         // Verify profit
-        uint256 finalBal = IERC20(tokenIn).balanceOf(address(this));
-        if (finalBal < assets + minProfit) revert InsufficientProfit(finalBal - assets, minProfit);
+        uint256 finalBal = IERC20(p.tokenIn).balanceOf(address(this));
+        if (finalBal < assets + p.minProfit) revert InsufficientProfit(finalBal - assets, p.minProfit);
 
         // Approve Morpho to pull back the borrowed amount
-        IERC20(tokenIn).forceApprove(MORPHO, assets);
+        IERC20(p.tokenIn).forceApprove(MORPHO, assets);
     }
 
     /// @notice Withdraw accumulated profits.

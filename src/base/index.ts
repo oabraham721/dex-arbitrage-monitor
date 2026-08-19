@@ -5,7 +5,7 @@ import { config, type Pair, type Route } from "./config.js";
 import { logToNotion } from "./notion.js";
 import { batchQuote, batchQuoteWithMeta, type Quote, type QuoteRequest } from "./multicall.js";
 import { findOptimalSize } from "./optimal-size.js";
-import { encodeSwapCalldata, encodeArbData, getSwapRouter, executorAbi } from "./executor.js";
+import { encodeSwapCalldata, encodeArbData, getSwapRouter, getSellAmountInOffset, executorAbi } from "./executor.js";
 
 type Opportunity = {
   pair: string;
@@ -261,10 +261,11 @@ async function executeArb(opp: Opportunity, optimalSize: bigint): Promise<void> 
 
     // min profit = 1 unit (safety net — the on-chain check prevents loss)
     const minProfit = 1n;
+    const sellAmountInOffset = getSellAmountInOffset(opp.sellRoute.quoter);
 
     const arbData = encodeArbData(
       buyRouter, buyCalldata, sellRouter, sellCalldata,
-      tokenIn, tokenOut, minProfit,
+      tokenIn, tokenOut, minProfit, sellAmountInOffset,
     );
 
     console.log(`    EXECUTING: ${opp.buy} → ${opp.sell} | size ${usdc(optimalSize)}`);

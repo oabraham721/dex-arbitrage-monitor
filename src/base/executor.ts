@@ -245,9 +245,20 @@ export function encodeArbData(
   tokenIn: Address,
   tokenOut: Address,
   minProfit: bigint,
+  sellAmountInOffset: bigint,
 ): Hex {
   return encodeAbiParameters(
-    parseAbiParameters("address, bytes, address, bytes, address, address, uint256"),
-    [buyRouter, buyCalldata, sellRouter, sellCalldata, tokenIn, tokenOut, minProfit],
+    parseAbiParameters("address, bytes, address, bytes, address, address, uint256, uint256"),
+    [buyRouter, buyCalldata, sellRouter, sellCalldata, tokenIn, tokenOut, minProfit, sellAmountInOffset],
   );
+}
+
+/**
+ * Byte offset of amountIn inside the sell calldata.
+ * Uniswap V3 SwapRouter02 (no deadline): selector(4) + 4 fields × 32 = 132
+ * PancakeSwap / SushiSwap / Aerodrome (with deadline): selector(4) + 5 fields × 32 = 164
+ */
+export function getSellAmountInOffset(quoter: Address): bigint {
+  const UNISWAP_QUOTER = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a";
+  return quoter.toLowerCase() === UNISWAP_QUOTER.toLowerCase() ? 132n : 164n;
 }

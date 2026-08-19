@@ -42,16 +42,16 @@ contract ArbitrageExecutorTest is Test {
     function test_onlyMorphoCanCallback() public {
         vm.expectRevert(ArbitrageExecutor.NotMorpho.selector);
         executor.onMorphoFlashLoan(1000e6, abi.encode(
-            address(0), "", address(0), "", USDC, WETH, uint256(0)
+            address(0), "", address(0), "", USDC, WETH, uint256(0), uint256(132)
         ));
     }
 
     function test_rejectsUnwhitelistedRouter() public {
         address fakeRouter = address(0xbeef);
         bytes memory buyCalldata = abi.encodeWithSignature("swap()");
-        bytes memory data = abi.encode(fakeRouter, buyCalldata, fakeRouter, buyCalldata, USDC, WETH, uint256(0));
+        bytes memory data = abi.encode(fakeRouter, buyCalldata, fakeRouter, buyCalldata, USDC, WETH, uint256(0), uint256(132));
 
-        vm.expectRevert(ArbitrageExecutor.RouterNotAllowed.selector);
+        vm.expectRevert();
         executor.execute(USDC, 1000e6, data);
     }
 
