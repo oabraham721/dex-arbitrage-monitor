@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/base/index.ts",
+    "dev:sui": "tsx src/sui/index.ts",
     "check": "tsc --noEmit",
     "start": "node dist/base/index.js",
     "build": "tsc"
   },
   "dependencies": {
     "@notionhq/client": "^5.25.2",
+    "aftermath-ts-sdk": "^3.0.0",
     "dotenv": "^16.4.7",
     "viem": "^2.23.5"
   },
