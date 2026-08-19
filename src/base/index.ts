@@ -239,17 +239,24 @@ async function executeArb(opp: Opportunity, optimalSize: bigint): Promise<void> 
     const sellRouter = getSwapRouter(opp.sellRoute.quoter);
     const executorAddr = config.executorAddress;
 
-    // tokenA is what we borrow (USDC or WETH), tokenB is the intermediate
     const tokenIn = opp.pairRef.tokenA;
     const tokenOut = opp.pairRef.tokenB;
+
+    // Quote the buy at optimal size to get expected output for sell input
+    const [buyQuote] = await batchQuote(client, [{
+      quoter: opp.buyRoute.quoter, tokenIn, tokenOut, amountIn: optimalSize,
+      param: opp.buyRoute.param, quoterType: opp.buyRoute.quoterType, pool: opp.buyRoute.pool,
+    }]);
+    if (!buyQuote) {
+      console.log("    Buy quote failed at optimal size, skipping execution");
+      return;
+    }
 
     const buyCalldata = encodeSwapCalldata(
       opp.buyRoute, tokenIn, tokenOut, optimalSize, 0n, executorAddr,
     );
     const sellCalldata = encodeSwapCalldata(
-      opp.sellRoute, tokenOut, tokenIn,
-      0n, // amountIn placeholder — contract uses actual balance
-      0n, executorAddr,
+      opp.sellRoute, tokenOut, tokenIn, buyQuote.amountOut, 0n, executorAddr,
     );
 
     // min profit = 1 unit (safety net — the on-chain check prevents loss)
