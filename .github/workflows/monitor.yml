@@ -19,8 +19,9 @@ jobs:
       - name: Run monitor for ~5.5 hours
         env:
           RPC_URL: ${{ secrets.RPC_URL }}
-          TRADE_SIZE_USDC: "100"
-          MIN_NET_PROFIT_USDC: "0.05"
+          TRADE_SIZE_USDC: "500"
+          TRADE_SIZE_WETH: "0.15"
+          MIN_NET_PROFIT_USDC: "0.03"
           POLL_INTERVAL_MS: "2000"
           GAS_OVERHEAD: "100000"
           EXECUTION_COST_BUFFER_USDC: "0.02"
