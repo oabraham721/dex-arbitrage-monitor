@@ -177,6 +177,26 @@ function decodeQuoteResult(data: `0x${string}`, quoterType: QuoterType): Quote {
   return { amountOut, gasEstimate };
 }
 
+const MAX_CALLS_PER_BATCH = 100;
+
+async function callMulticall(
+  client: PublicClient<Transport, typeof base>,
+  calls: { target: Address; callData: `0x${string}` }[],
+): Promise<{ success: boolean; returnData: `0x${string}` }[]> {
+  const multicallData = encodeFunctionData({
+    abi: multicall3Abi,
+    functionName: "tryAggregate",
+    args: [false, calls],
+  });
+  const response = await client.call({ to: MULTICALL3, data: multicallData });
+  if (!response.data) throw new Error("Multicall returned no data");
+  return decodeFunctionResult({
+    abi: multicall3Abi,
+    functionName: "tryAggregate",
+    data: response.data,
+  }) as unknown as { success: boolean; returnData: `0x${string}` }[];
+}
+
 export async function batchQuote(
   client: PublicClient<Transport, typeof base>,
   requests: QuoteRequest[],
@@ -184,22 +204,15 @@ export async function batchQuote(
   if (requests.length === 0) return [];
 
   const calls = requests.map(encodeQuoteCall);
-  const multicallData = encodeFunctionData({
-    abi: multicall3Abi,
-    functionName: "tryAggregate",
-    args: [false, calls],
-  });
+  const results: { success: boolean; returnData: `0x${string}` }[] = [];
 
-  const response = await client.call({ to: MULTICALL3, data: multicallData });
-  if (!response.data) throw new Error("Multicall returned no data");
+  for (let i = 0; i < calls.length; i += MAX_CALLS_PER_BATCH) {
+    const chunk = calls.slice(i, i + MAX_CALLS_PER_BATCH);
+    const decoded = await callMulticall(client, chunk);
+    results.push(...decoded);
+  }
 
-  const decoded = decodeFunctionResult({
-    abi: multicall3Abi,
-    functionName: "tryAggregate",
-    data: response.data,
-  }) as unknown as { success: boolean; returnData: `0x${string}` }[];
-
-  return decoded.map((result, i) => {
+  return results.map((result, i) => {
     if (!result.success || result.returnData === "0x") return null;
     try {
       return decodeQuoteResult(result.returnData, requests[i]!.quoterType);
@@ -214,7 +227,7 @@ export type BatchMetaResult = {
   quotes: (Quote | null)[];
 };
 
-/** Batches quote requests + blockNumber into a single RPC call. */
+/** Batches quote requests + blockNumber into a single RPC call (chunked if large). */
 export async function batchQuoteWithMeta(
   client: PublicClient<Transport, typeof base>,
   requests: QuoteRequest[],
@@ -223,26 +236,23 @@ export async function batchQuoteWithMeta(
     { target: MULTICALL3, callData: encodeFunctionData({ abi: multicall3Abi, functionName: "getBlockNumber", args: [] }) },
   ];
   const quoteCalls = requests.map(encodeQuoteCall);
-  const allCalls = [...metaCalls, ...quoteCalls];
 
-  const multicallData = encodeFunctionData({
-    abi: multicall3Abi,
-    functionName: "tryAggregate",
-    args: [false, allCalls],
-  });
+  // First chunk includes meta call
+  const firstChunkSize = MAX_CALLS_PER_BATCH - 1;
+  const firstCalls = [...metaCalls, ...quoteCalls.slice(0, firstChunkSize)];
+  const firstDecoded = await callMulticall(client, firstCalls);
 
-  const response = await client.call({ to: MULTICALL3, data: multicallData });
-  if (!response.data) throw new Error("Multicall returned no data");
+  const blockNumber = BigInt(firstDecoded[0]!.returnData);
+  const allQuoteResults = firstDecoded.slice(1);
 
-  const decoded = decodeFunctionResult({
-    abi: multicall3Abi,
-    functionName: "tryAggregate",
-    data: response.data,
-  }) as unknown as { success: boolean; returnData: `0x${string}` }[];
+  // Remaining chunks
+  for (let i = firstChunkSize; i < quoteCalls.length; i += MAX_CALLS_PER_BATCH) {
+    const chunk = quoteCalls.slice(i, i + MAX_CALLS_PER_BATCH);
+    const decoded = await callMulticall(client, chunk);
+    allQuoteResults.push(...decoded);
+  }
 
-  const blockNumber = BigInt(decoded[0]!.returnData);
-
-  const quotes = decoded.slice(1).map((result, i) => {
+  const quotes = allQuoteResults.map((result, i) => {
     if (!result.success || result.returnData === "0x") return null;
     try {
       return decodeQuoteResult(result.returnData, requests[i]!.quoterType);
