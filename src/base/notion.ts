@@ -37,6 +37,7 @@ export async function logToNotion(
       parent: { database_id: config.notionDatabaseId },
       properties: {
         Route: { title: [{ text: { content: title } }] },
+        Opportunity: { number: seqGlobal },
         "Net Profit ($)": { number: dollars(opportunity.netProfit) },
         "Gross (bps)": { number: Number(opportunity.grossBps) },
         "Trade Size ($)": { number: dollars(config.tradeSize) },
