@@ -3,9 +3,13 @@ import { base } from "viem/chains";
 import { config, type Pair, type Route } from "./config.js";
 import { logToNotion } from "./notion.js";
 import { batchQuote, batchQuoteWithMeta, type Quote, type QuoteRequest } from "./multicall.js";
+import { findOptimalSize } from "./optimal-size.js";
 
 type Opportunity = {
   pair: string;
+  pairRef: Pair;
+  buyRoute: Route;
+  sellRoute: Route;
   buy: string;
   sell: string;
   grossOutput: bigint;
@@ -168,6 +172,9 @@ async function scan(): Promise<void> {
     const netProfit = grossProfitUsdc - gasCostUsdc - config.executionCostBuffer;
     results.push({
       pair: pair.name,
+      pairRef: pair,
+      buyRoute,
+      sellRoute,
       buy: buyRoute.name,
       sell: sellRoute.name,
       grossOutput: grossOutputUsdc,
@@ -185,7 +192,24 @@ async function scan(): Promise<void> {
   console.log(`\n[${new Date().toISOString()}] Base block ${blockNumber} | ${results.length} routes | ${buyRequests.length + sellRequests.length} quotes in 3 RPC calls${dead}`);
   if (profitable.length === 0) console.log("  No net-profitable route at the configured threshold.");
   for (const result of shown) printOpportunity(result);
-  await Promise.all(profitable.map((result) => logToNotion(result, blockNumber)));
+
+  // For profitable opportunities, find optimal flash loan size
+  for (const result of profitable) {
+    try {
+      const optimal = await findOptimalSize(
+        client, result.pairRef, result.buyRoute, result.sellRoute,
+        gasPrice, wethBest,
+      );
+      console.log(
+        `    optimal: ${usdc(optimal.optimalSizeUsdc)} trade → ${usdc(optimal.peakNetProfit)} peak profit` +
+        ` | breakeven at ${usdc(optimal.maxBreakevenSize)}`,
+      );
+      await logToNotion(result, blockNumber, optimal.peakNetProfit, optimal.optimalSizeUsdc);
+    } catch (error) {
+      console.error(`    optimal size search failed: ${error instanceof Error ? error.message : error}`);
+      await logToNotion(result, blockNumber, null, null);
+    }
+  }
 }
 
 async function main(): Promise<void> {

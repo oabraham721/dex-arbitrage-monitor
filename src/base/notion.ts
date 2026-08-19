@@ -25,23 +25,26 @@ export type NotionOpportunity = {
 export async function logToNotion(
   opportunity: NotionOpportunity,
   blockNumber: bigint,
+  flashProfit: bigint | null = null,
+  optimalSize: bigint | null = null,
 ): Promise<void> {
   if (!notion || !config.notionDatabaseId) return;
 
   seqGlobal++;
   const title = `Opportunity #${seqGlobal}`;
-  const flashProfit = (opportunity.netProfit * 1_000_000n * 1_000_000n) / config.tradeSize;
+  // Use real flash profit from optimal size search, fallback to linear extrapolation
+  const flashProfitValue = flashProfit ?? (opportunity.netProfit * 1_000_000_000_000n) / config.tradeSize;
 
   try {
     await notion.pages.create({
       parent: { database_id: config.notionDatabaseId },
       properties: {
         Route: { title: [{ text: { content: title } }] },
-        Opportunity: { number: seqGlobal },
+        Oppurtunity: { number: seqGlobal },
         "Net Profit ($)": { number: dollars(opportunity.netProfit) },
         "Gross (bps)": { number: Number(opportunity.grossBps) },
-        "Trade Size ($)": { number: dollars(config.tradeSize) },
-        "Flash Profit ($)": { number: dollars(flashProfit) },
+        "Trade Size ($)": { number: dollars(optimalSize ? optimalSize : config.tradeSize) },
+        "Flash Profit ($)": { number: dollars(flashProfitValue) },
         "Output ($)": { number: dollars(opportunity.grossOutput) },
         "Gas Cost ($)": { number: dollars(opportunity.gasCost) },
         Block: { number: Number(blockNumber) },

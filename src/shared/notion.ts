@@ -40,7 +40,7 @@ export async function logToNotion(
       parent: { database_id: databaseId },
       properties: {
         Route: { title: [{ text: { content: title } }] },
-        Opportunity: { number: seqGlobal },
+        Oppurtunity: { number: seqGlobal },
         "Net Profit ($)": { number: usd(opportunity.netProfitUsd) },
         "Gross (bps)": { number: opportunity.grossBps },
         "Trade Size ($)": { number: usd(opportunity.tradeSizeUsd) },
