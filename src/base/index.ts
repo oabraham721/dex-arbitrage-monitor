@@ -1,9 +1,11 @@
-import { createPublicClient, formatUnits, http } from "viem";
+import { createPublicClient, createWalletClient, formatUnits, http, type Address } from "viem";
 import { base } from "viem/chains";
+import { privateKeyToAccount } from "viem/accounts";
 import { config, type Pair, type Route } from "./config.js";
 import { logToNotion } from "./notion.js";
 import { batchQuote, batchQuoteWithMeta, type Quote, type QuoteRequest } from "./multicall.js";
 import { findOptimalSize } from "./optimal-size.js";
+import { encodeSwapCalldata, encodeArbData, getSwapRouter, executorAbi } from "./executor.js";
 
 type Opportunity = {
   pair: string;
@@ -205,10 +207,73 @@ async function scan(): Promise<void> {
         ` | breakeven at ${usdc(optimal.maxBreakevenSize)}`,
       );
       await logToNotion(result, blockNumber, optimal.peakNetProfit, optimal.optimalSizeUsdc);
+
+      // Execute via flash loan if enabled and profitable at optimal size
+      if (config.execute && optimal.peakNetProfit > 0n) {
+        await executeArb(result, optimal.optimalSize);
+      }
     } catch (error) {
       console.error(`    optimal size search failed: ${error instanceof Error ? error.message : error}`);
       await logToNotion(result, blockNumber, null, null);
     }
+  }
+}
+
+// Wallet client for execution (only created if EXECUTE=true)
+const walletClient = config.execute && config.privateKey && config.executorAddress
+  ? createWalletClient({
+      account: privateKeyToAccount(config.privateKey),
+      chain: base,
+      transport: http(config.rpcUrl, { retryCount: 2, timeout: 20_000 }),
+    })
+  : null;
+
+async function executeArb(opp: Opportunity, optimalSize: bigint): Promise<void> {
+  if (!walletClient || !config.executorAddress) {
+    console.log("    EXECUTE mode enabled but missing PRIVATE_KEY or EXECUTOR_ADDRESS");
+    return;
+  }
+
+  try {
+    const buyRouter = getSwapRouter(opp.buyRoute.quoter);
+    const sellRouter = getSwapRouter(opp.sellRoute.quoter);
+    const executorAddr = config.executorAddress;
+
+    // tokenA is what we borrow (USDC or WETH), tokenB is the intermediate
+    const tokenIn = opp.pairRef.tokenA;
+    const tokenOut = opp.pairRef.tokenB;
+
+    const buyCalldata = encodeSwapCalldata(
+      opp.buyRoute, tokenIn, tokenOut, optimalSize, 0n, executorAddr,
+    );
+    const sellCalldata = encodeSwapCalldata(
+      opp.sellRoute, tokenOut, tokenIn,
+      0n, // amountIn placeholder — contract uses actual balance
+      0n, executorAddr,
+    );
+
+    // min profit = 1 unit (safety net — the on-chain check prevents loss)
+    const minProfit = 1n;
+
+    const arbData = encodeArbData(
+      buyRouter, buyCalldata, sellRouter, sellCalldata,
+      tokenIn, tokenOut, minProfit,
+    );
+
+    console.log(`    EXECUTING: ${opp.buy} → ${opp.sell} | size ${usdc(optimalSize)}`);
+
+    const hash = await walletClient.writeContract({
+      address: executorAddr,
+      abi: executorAbi,
+      functionName: "execute",
+      args: [tokenIn, optimalSize, arbData],
+    });
+
+    console.log(`    TX submitted: ${hash}`);
+    const receipt = await client.waitForTransactionReceipt({ hash, timeout: 30_000 });
+    console.log(`    TX ${receipt.status}: gas used ${receipt.gasUsed}`);
+  } catch (error) {
+    console.error(`    Execution failed: ${error instanceof Error ? error.message : error}`);
   }
 }
 
@@ -218,7 +283,8 @@ async function main(): Promise<void> {
     `Monitoring ${config.routes.length} routes x ${config.pairs.length} pairs (${combos} combinations)` +
       ` with ${usdc(config.tradeSize)} paper trades` +
       `; minimum net profit ${usdc(config.minimumProfit)}` +
-      `; execution buffer ${usdc(config.executionCostBuffer)}.`,
+      `; execution buffer ${usdc(config.executionCostBuffer)}` +
+      `${config.execute ? "; EXECUTION ENABLED" : ""}.`,
   );
 
   if (config.once) {
