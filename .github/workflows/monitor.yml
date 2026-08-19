@@ -29,4 +29,4 @@ jobs:
           ONCE: "false"
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-        run: timeout 19800 npx tsx src/index.ts || true
+        run: timeout 19800 npx tsx src/base/index.ts || true

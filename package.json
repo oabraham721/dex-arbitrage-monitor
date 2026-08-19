@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/base/index.ts",
     "check": "tsc --noEmit",
-    "start": "node dist/index.js",
+    "start": "node dist/base/index.js",
     "build": "tsc"
   },
   "dependencies": {
