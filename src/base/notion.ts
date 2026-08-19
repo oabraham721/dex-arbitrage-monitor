@@ -32,8 +32,7 @@ export async function logToNotion(
 
   seqGlobal++;
   const title = `Opportunity #${seqGlobal}`;
-  // Use real flash profit from optimal size search, fallback to linear extrapolation
-  const flashProfitValue = flashProfit ?? (opportunity.netProfit * 1_000_000_000_000n) / config.tradeSize;
+  const peakProfit = flashProfit ?? (opportunity.netProfit * 1_000_000_000_000n) / config.tradeSize;
 
   try {
     await notion.pages.create({
@@ -41,10 +40,9 @@ export async function logToNotion(
       properties: {
         Route: { title: [{ text: { content: title } }] },
         Oppurtunity: { number: seqGlobal },
-        "Net Profit ($)": { number: dollars(opportunity.netProfit) },
+        "Flash Profit ($)": { number: dollars(peakProfit) },
         "Gross (bps)": { number: Number(opportunity.grossBps) },
         "Trade Size ($)": { number: dollars(optimalSize ? optimalSize : config.tradeSize) },
-        "Flash Profit ($)": { number: dollars(flashProfitValue) },
         "Output ($)": { number: dollars(opportunity.grossOutput) },
         "Gas Cost ($)": { number: dollars(opportunity.gasCost) },
         Block: { number: Number(blockNumber) },

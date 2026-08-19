@@ -31,7 +31,7 @@ export async function logToNotion(
 
   seqGlobal++;
   const title = `Opportunity #${seqGlobal}`;
-  const flashProfit = opportunity.tradeSizeUsd > 0
+  const peakProfit = opportunity.tradeSizeUsd > 0
     ? (opportunity.netProfitUsd / opportunity.tradeSizeUsd) * 1_000_000
     : 0;
 
@@ -41,10 +41,9 @@ export async function logToNotion(
       properties: {
         Route: { title: [{ text: { content: title } }] },
         Oppurtunity: { number: seqGlobal },
-        "Net Profit ($)": { number: usd(opportunity.netProfitUsd) },
+        "Flash Profit ($)": { number: usd(peakProfit) },
         "Gross (bps)": { number: opportunity.grossBps },
         "Trade Size ($)": { number: usd(opportunity.tradeSizeUsd) },
-        "Flash Profit ($)": { number: usd(flashProfit) },
         "Output ($)": { number: usd(opportunity.grossOutputUsd) },
         "Gas Cost ($)": { number: usd(opportunity.gasCostUsd) },
         Block: { number: blockOrCheckpoint },
