@@ -262,3 +262,10 @@ export function getSellAmountInOffset(quoter: Address): bigint {
   const UNISWAP_QUOTER = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a";
   return quoter.toLowerCase() === UNISWAP_QUOTER.toLowerCase() ? 132n : 164n;
 }
+
+/** Patch a 32-byte uint256 value at a byte offset in hex calldata. */
+export function patchCalldata(calldata: Hex, byteOffset: number, value: bigint): Hex {
+  const hex = value.toString(16).padStart(64, "0");
+  const charOffset = 2 + byteOffset * 2; // skip "0x"
+  return (calldata.slice(0, charOffset) + hex + calldata.slice(charOffset + 64)) as Hex;
+}

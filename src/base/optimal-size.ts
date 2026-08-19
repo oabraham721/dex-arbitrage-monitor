@@ -8,6 +8,7 @@ export type OptimalResult = {
   optimalSizeUsdc: bigint; // in USDC 6-decimal terms
   peakNetProfit: bigint; // USDC 6-decimals
   maxBreakevenSize: bigint; // largest size still profitable
+  buyOutputAtOptimal: bigint; // buy output at optimal size (for sell calldata encoding)
 };
 
 // Trade sizes to probe (USDC). Binary search after coarse sweep.
@@ -116,5 +117,6 @@ export async function findOptimalSize(
     optimalSizeUsdc: probes[optimalIdx]!.usdc6,
     peakNetProfit,
     maxBreakevenSize: probes[maxBreakevenIdx]!.usdc6,
+    buyOutputAtOptimal: buyResults[optimalIdx]?.amountOut ?? 0n,
   };
 }

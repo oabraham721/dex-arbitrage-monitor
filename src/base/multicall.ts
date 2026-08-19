@@ -224,26 +224,29 @@ export async function batchQuote(
 
 export type BatchMetaResult = {
   blockNumber: bigint;
+  basefee: bigint;
   quotes: (Quote | null)[];
 };
 
-/** Batches quote requests + blockNumber into a single RPC call (chunked if large). */
+/** Batches quote requests + blockNumber + basefee into a single RPC call (chunked if large). */
 export async function batchQuoteWithMeta(
   client: PublicClient<Transport, typeof base>,
   requests: QuoteRequest[],
 ): Promise<BatchMetaResult> {
   const metaCalls: { target: Address; callData: `0x${string}` }[] = [
     { target: MULTICALL3, callData: encodeFunctionData({ abi: multicall3Abi, functionName: "getBlockNumber", args: [] }) },
+    { target: MULTICALL3, callData: encodeFunctionData({ abi: multicall3Abi, functionName: "getBasefee", args: [] }) },
   ];
   const quoteCalls = requests.map(encodeQuoteCall);
 
-  // First chunk includes meta call
-  const firstChunkSize = MAX_CALLS_PER_BATCH - 1;
+  // First chunk includes meta calls
+  const firstChunkSize = MAX_CALLS_PER_BATCH - metaCalls.length;
   const firstCalls = [...metaCalls, ...quoteCalls.slice(0, firstChunkSize)];
   const firstDecoded = await callMulticall(client, firstCalls);
 
   const blockNumber = BigInt(firstDecoded[0]!.returnData);
-  const allQuoteResults = firstDecoded.slice(1);
+  const basefee = BigInt(firstDecoded[1]!.returnData);
+  const allQuoteResults = firstDecoded.slice(metaCalls.length);
 
   // Remaining chunks
   for (let i = firstChunkSize; i < quoteCalls.length; i += MAX_CALLS_PER_BATCH) {
@@ -261,5 +264,5 @@ export async function batchQuoteWithMeta(
     }
   });
 
-  return { blockNumber, quotes };
+  return { blockNumber, basefee, quotes };
 }

@@ -1,11 +1,11 @@
-import { createPublicClient, createWalletClient, formatUnits, http, type Address } from "viem";
+import { createPublicClient, createWalletClient, formatUnits, http, webSocket, type Address } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { config, type Pair, type Route } from "./config.js";
 import { logToNotion } from "./notion.js";
 import { batchQuote, batchQuoteWithMeta, type Quote, type QuoteRequest } from "./multicall.js";
 import { findOptimalSize } from "./optimal-size.js";
-import { encodeSwapCalldata, encodeArbData, getSwapRouter, getSellAmountInOffset, executorAbi } from "./executor.js";
+import { encodeSwapCalldata, encodeArbData, getSwapRouter, getSellAmountInOffset, patchCalldata, executorAbi } from "./executor.js";
 
 type Opportunity = {
   pair: string;
@@ -88,8 +88,8 @@ async function scan(): Promise<void> {
     }
   }
 
-  const { blockNumber, quotes: buyResults } = await batchQuoteWithMeta(client, buyRequests);
-  const gasPrice = await client.getGasPrice();
+  const { blockNumber, basefee, quotes: buyResults } = await batchQuoteWithMeta(client, buyRequests);
+  const gasPrice = basefee;
 
   // Update dead pool cache from buy results
   for (let i = 0; i < buyResults.length; i++) {
@@ -196,26 +196,38 @@ async function scan(): Promise<void> {
   for (const result of shown) printOpportunity(result);
 
   // For profitable opportunities, find optimal flash loan size
-  for (const result of profitable) {
-    try {
-      const optimal = await findOptimalSize(
-        client, result.pairRef, result.buyRoute, result.sellRoute,
-        gasPrice, wethBest,
-      );
-      console.log(
-        `    optimal: ${usdc(optimal.optimalSizeUsdc)} trade → ${usdc(optimal.peakNetProfit)} peak profit` +
-        ` | breakeven at ${usdc(optimal.maxBreakevenSize)}`,
-      );
-      await logToNotion(result, blockNumber, optimal.peakNetProfit, optimal.optimalSizeUsdc);
+  const MIN_EXEC_PROFIT = 100_000n; // $0.10 USDC minimum to attempt execution
 
-      // Execute via flash loan if enabled and profitable at optimal size
-      if (config.execute && optimal.peakNetProfit > 0n) {
-        await executeArb(result, optimal.optimalSize);
-      }
-    } catch (error) {
-      console.error(`    optimal size search failed: ${error instanceof Error ? error.message : error}`);
-      await logToNotion(result, blockNumber, null, null);
-    }
+  // Execute only the best opportunity per block (avoids nonce collisions)
+  const best = profitable.filter(r => r.netProfit >= MIN_EXEC_PROFIT).sort((a, b) => Number(b.netProfit - a.netProfit))[0];
+  if (config.execute && best) {
+    const cacheKey = `${best.pair}:${best.buy}:${best.sell}`;
+    const cached = optimalSizeCache.get(cacheKey);
+    const execSize = cached?.size ?? DEFAULT_EXEC_SIZE;
+    const execBuyOutput = cached?.buyOutput ?? execSize;
+    executeArb(best, execSize, execBuyOutput).catch(() => {});
+  }
+
+  for (const result of profitable) {
+    const cacheKey = `${result.pair}:${result.buy}:${result.sell}`;
+
+    // SLOW PATH: run optimal size search, update cache for next time
+    findOptimalSize(client, result.pairRef, result.buyRoute, result.sellRoute, gasPrice, wethBest)
+      .then(async (optimal) => {
+        // Update cache for next opportunity on this route
+        if (optimal.peakNetProfit > 0n) {
+          optimalSizeCache.set(cacheKey, { size: optimal.optimalSize, buyOutput: optimal.buyOutputAtOptimal });
+        }
+        console.log(
+          `    optimal: ${usdc(optimal.optimalSizeUsdc)} trade → ${usdc(optimal.peakNetProfit)} peak profit` +
+          ` | breakeven at ${usdc(optimal.maxBreakevenSize)}`,
+        );
+        await logToNotion(result, blockNumber, optimal.peakNetProfit, optimal.optimalSizeUsdc);
+      })
+      .catch(async (error) => {
+        console.error(`    optimal size search failed: ${error instanceof Error ? error.message : error}`);
+        await logToNotion(result, blockNumber, null, null);
+      });
   }
 }
 
@@ -228,7 +240,29 @@ const walletClient = config.execute && config.privateKey && config.executorAddre
     })
   : null;
 
-async function executeArb(opp: Opportunity, optimalSize: bigint): Promise<void> {
+// Hybrid execution: cache last-known optimal size per route combo
+const DEFAULT_EXEC_SIZE = 10_000_000_000n; // $10K USDC (conservative default for cold cache)
+const optimalSizeCache = new Map<string, { size: bigint; buyOutput: bigint }>();
+
+// Pre-encoded calldata templates keyed by "pairIdx:routeIdx" with placeholder amountIn=1
+type CalldataTemplate = { calldata: `0x${string}`; amountInOffset: number };
+const calldataTemplates = new Map<string, CalldataTemplate>();
+
+function getTemplate(pair: Pair, route: Route, isBuyLeg: boolean): CalldataTemplate {
+  const key = `${pair.name}:${route.name}:${isBuyLeg ? "buy" : "sell"}`;
+  let tpl = calldataTemplates.get(key);
+  if (!tpl) {
+    const executorAddr = config.executorAddress!;
+    const [tokenIn, tokenOut] = isBuyLeg ? [pair.tokenA, pair.tokenB] : [pair.tokenB, pair.tokenA];
+    const calldata = encodeSwapCalldata(route, tokenIn, tokenOut, 1n, 0n, executorAddr);
+    const offset = Number(getSellAmountInOffset(route.quoter));
+    tpl = { calldata, amountInOffset: offset };
+    calldataTemplates.set(key, tpl);
+  }
+  return tpl;
+}
+
+async function executeArb(opp: Opportunity, optimalSize: bigint, buyOutput: bigint): Promise<void> {
   if (!walletClient || !config.executorAddress) {
     console.log("    EXECUTE mode enabled but missing PRIVATE_KEY or EXECUTOR_ADDRESS");
     return;
@@ -242,26 +276,14 @@ async function executeArb(opp: Opportunity, optimalSize: bigint): Promise<void> 
     const tokenIn = opp.pairRef.tokenA;
     const tokenOut = opp.pairRef.tokenB;
 
-    // Quote the buy at optimal size to get expected output for sell input
-    const [buyQuote] = await batchQuote(client, [{
-      quoter: opp.buyRoute.quoter, tokenIn, tokenOut, amountIn: optimalSize,
-      param: opp.buyRoute.param, quoterType: opp.buyRoute.quoterType, pool: opp.buyRoute.pool,
-    }]);
-    if (!buyQuote) {
-      console.log("    Buy quote failed at optimal size, skipping execution");
-      return;
-    }
+    // Patch pre-encoded templates with actual amounts (avoids full ABI encoding)
+    const buyTpl = getTemplate(opp.pairRef, opp.buyRoute, true);
+    const buyCalldata = patchCalldata(buyTpl.calldata, buyTpl.amountInOffset, optimalSize);
+    const sellTpl = getTemplate(opp.pairRef, opp.sellRoute, false);
+    const sellCalldata = patchCalldata(sellTpl.calldata, sellTpl.amountInOffset, buyOutput);
 
-    const buyCalldata = encodeSwapCalldata(
-      opp.buyRoute, tokenIn, tokenOut, optimalSize, 0n, executorAddr,
-    );
-    const sellCalldata = encodeSwapCalldata(
-      opp.sellRoute, tokenOut, tokenIn, buyQuote.amountOut, 0n, executorAddr,
-    );
-
-    // min profit = 1 unit (safety net — the on-chain check prevents loss)
     const minProfit = 1n;
-    const sellAmountInOffset = getSellAmountInOffset(opp.sellRoute.quoter);
+    const sellAmountInOffset = BigInt(sellTpl.amountInOffset);
 
     const arbData = encodeArbData(
       buyRouter, buyCalldata, sellRouter, sellCalldata,
@@ -275,6 +297,7 @@ async function executeArb(opp: Opportunity, optimalSize: bigint): Promise<void> 
       abi: executorAbi,
       functionName: "execute",
       args: [tokenIn, optimalSize, arbData],
+      gas: 500_000n,
     });
 
     console.log(`    TX submitted: ${hash}`);
@@ -300,29 +323,48 @@ async function main(): Promise<void> {
     return;
   }
 
-  let lastBlock = 0n;
-  const loop = async () => {
-    while (true) {
-      try {
-        const block = await client.getBlockNumber();
-        if (block > lastBlock) {
-          lastBlock = block;
-          await scan();
-        }
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : error);
-      }
-      await new Promise((r) => setTimeout(r, config.pollIntervalMs));
-    }
-  };
-
   process.on("SIGINT", () => {
     console.log("\nMonitor stopped.");
     process.exit(0);
   });
   process.on("SIGTERM", () => process.exit(0));
 
-  await loop();
+  // WebSocket mode: scan immediately on each new block
+  if (config.wsUrl) {
+    console.log("Using WebSocket for block notifications.");
+    const wsClient = createPublicClient({
+      chain: base,
+      transport: webSocket(config.wsUrl, { retryCount: 5 }),
+    });
+    let scanning = false;
+    wsClient.watchBlockNumber({
+      onBlockNumber: async () => {
+        if (scanning) return;
+        scanning = true;
+        try { await scan(); } catch (e) {
+          console.error(e instanceof Error ? e.message : e);
+        }
+        scanning = false;
+      },
+    });
+    // Keep process alive
+    await new Promise(() => {});
+  }
+
+  // HTTP fallback: tight loop, no artificial delay
+  let lastBlock = 0n;
+  while (true) {
+    try {
+      const block = await client.getBlockNumber();
+      if (block > lastBlock) {
+        lastBlock = block;
+        await scan();
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
 }
 
 await main();

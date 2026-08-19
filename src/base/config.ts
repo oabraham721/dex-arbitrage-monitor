@@ -86,6 +86,7 @@ function booleanFromEnv(name: string): boolean {
 
 export const config = {
   rpcUrl: process.env.RPC_URL ?? "https://mainnet.base.org",
+  wsUrl: process.env.WS_URL ?? null as string | null,
   tradeSize: parseUnits(process.env.TRADE_SIZE_USDC ?? "100", 6),
   tradeSizeWeth: parseUnits(process.env.TRADE_SIZE_WETH ?? "0.03", 18),
   minimumProfit: parseUnits(process.env.MIN_NET_PROFIT_USDC ?? "0.01", 6),
