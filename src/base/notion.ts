@@ -7,6 +7,19 @@ const notion = config.notionDatabaseId
   : null;
 
 let seqGlobal = 0;
+let seqInitialized = false;
+
+async function initSeq(): Promise<void> {
+  if (seqInitialized || !notion) return;
+  seqInitialized = true;
+  try {
+    const res = await notion.search({ filter: { property: "object", value: "page" }, query: "Opportunity" });
+    for (const page of res.results as any[]) {
+      const n = page.properties?.Oppurtunity?.number ?? 0;
+      if (n > seqGlobal) seqGlobal = n;
+    }
+  } catch {}
+}
 
 function dollars(value: bigint): number {
   return Number(formatUnits(value, 6));
@@ -29,6 +42,7 @@ export async function logToNotion(
   optimalSize: bigint | null = null,
 ): Promise<void> {
   if (!notion || !config.notionDatabaseId) return;
+  await initSeq();
 
   seqGlobal++;
   const title = `Opportunity #${seqGlobal}`;

@@ -5,6 +5,19 @@ const notion = process.env.NOTION_DATABASE_ID
   : null;
 
 let seqGlobal = 0;
+let seqInitialized = false;
+
+async function initSeq(): Promise<void> {
+  if (seqInitialized || !notion) return;
+  seqInitialized = true;
+  try {
+    const res = await notion.search({ filter: { property: "object", value: "page" }, query: "Opportunity" });
+    for (const page of res.results as any[]) {
+      const n = page.properties?.Oppurtunity?.number ?? 0;
+      if (n > seqGlobal) seqGlobal = n;
+    }
+  } catch {}
+}
 
 function usd(value: number): number {
   return Number(value.toFixed(6));
@@ -28,6 +41,7 @@ export async function logToNotion(
 ): Promise<void> {
   const databaseId = process.env.NOTION_DATABASE_ID;
   if (!notion || !databaseId) return;
+  await initSeq();
 
   seqGlobal++;
   const title = `Opportunity #${seqGlobal}`;
