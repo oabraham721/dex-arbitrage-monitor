@@ -22,7 +22,6 @@ const UNISWAP_QUOTER = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a";
 const PANCAKE_QUOTER = "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997";
 const SUSHI_QUOTER = "0xb1E835Dc2785b52265711e17fCCb0fd018226a6e";
 const AERO_QUOTER = "0x254cF9E1E6e233aa1AC962CB9B05b2cfeAaE15b0";
-const BAL_ROUTER = "0x3f170631ed9821Ca51A59D996aB095162438DC10";
 
 const defaultRoutes: Route[] = [
   { name: "Uniswap 0.01%", quoter: UNISWAP_QUOTER, quoterType: "uniV3", param: 100 },
@@ -35,10 +34,8 @@ const defaultRoutes: Route[] = [
   { name: "SushiSwap 0.05%", quoter: SUSHI_QUOTER, quoterType: "uniV3", param: 500 },
   { name: "SushiSwap 0.3%", quoter: SUSHI_QUOTER, quoterType: "uniV3", param: 3000 },
   { name: "Aerodrome tick=1", quoter: AERO_QUOTER, quoterType: "aerodrome", param: 1 },
-  { name: "Aerodrome tick=50", quoter: AERO_QUOTER, quoterType: "aerodrome", param: 50 },
   { name: "Aerodrome tick=100", quoter: AERO_QUOTER, quoterType: "aerodrome", param: 100 },
   { name: "Aerodrome tick=200", quoter: AERO_QUOTER, quoterType: "aerodrome", param: 200 },
-  { name: "Balancer 0.05%", quoter: BAL_ROUTER, quoterType: "balancer", param: 0, pool: "0x3f31e580Eb590DaB16a10A0808D33bCbc5d3D608" },
 ];
 
 const WETH = getAddress("0x4200000000000000000000000000000000000006");
@@ -58,7 +55,6 @@ const defaultPairs: Pair[] = [
   { name: "cbBTC/USDC", tokenA: USDC, tokenB: CBBTC, decimalsA: 6 },
   { name: "USDT/USDC", tokenA: USDC, tokenB: USDT, decimalsA: 6 },
   { name: "USDbC/USDC", tokenA: USDC, tokenB: USDbC, decimalsA: 6 },
-  { name: "wstETH/USDC", tokenA: USDC, tokenB: WSTETH, decimalsA: 6 },
   { name: "cbETH/USDC", tokenA: USDC, tokenB: CBETH, decimalsA: 6 },
   { name: "AERO/USDC", tokenA: USDC, tokenB: AERO, decimalsA: 6 },
   { name: "DAI/USDC", tokenA: USDC, tokenB: DAI, decimalsA: 6 },
