@@ -177,7 +177,7 @@ function decodeQuoteResult(data: `0x${string}`, quoterType: QuoterType): Quote {
   return { amountOut, gasEstimate };
 }
 
-const MAX_CALLS_PER_BATCH = 100;
+const MAX_CALLS_PER_BATCH = 300;
 
 async function callMulticall(
   client: PublicClient<Transport, typeof base>,
