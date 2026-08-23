@@ -146,7 +146,7 @@ const balancerSwapAbi = [
 
 const PANCAKE_QUOTER = "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997";
 const SUSHI_QUOTER = "0xb1E835Dc2785b52265711e17fCCb0fd018226a6e";
-const DEADLINE_FAR_FUTURE = BigInt(Math.floor(Date.now() / 1000) + 3600);
+const DEADLINE_FAR_FUTURE = BigInt(Math.floor(Date.now() / 1000) + 86400 * 365);
 
 export function encodeSwapCalldata(
   route: Route,
@@ -157,8 +157,8 @@ export function encodeSwapCalldata(
   recipient: Address,
 ): Hex {
   if (route.quoterType === "uniV3") {
-    // PancakeSwap and SushiSwap use deadline-style interface
-    if (route.quoter === PANCAKE_QUOTER || route.quoter === SUSHI_QUOTER) {
+    // SushiSwap uses deadline-style interface
+    if (route.quoter === SUSHI_QUOTER) {
       return encodeFunctionData({
         abi: pancakeSwapAbi,
         functionName: "exactInputSingle",
@@ -169,7 +169,7 @@ export function encodeSwapCalldata(
         }],
       });
     }
-    // Uniswap SwapRouter02 (no deadline)
+    // Uniswap SwapRouter02 and PancakeSwap SmartRouter (no deadline)
     return encodeFunctionData({
       abi: uniV3SwapAbi,
       functionName: "exactInputSingle",
@@ -247,20 +247,25 @@ export function encodeArbData(
   minProfit: bigint,
   sellAmountInOffset: bigint,
 ): Hex {
+  // Encode as a single tuple to match Solidity's abi.decode(data, (ArbParams))
   return encodeAbiParameters(
-    parseAbiParameters("address, bytes, address, bytes, address, address, uint256, uint256"),
-    [buyRouter, buyCalldata, sellRouter, sellCalldata, tokenIn, tokenOut, minProfit, sellAmountInOffset],
+    parseAbiParameters("(address, bytes, address, bytes, address, address, uint256, uint256)"),
+    [[buyRouter, buyCalldata, sellRouter, sellCalldata, tokenIn, tokenOut, minProfit, sellAmountInOffset]],
   );
 }
 
 /**
  * Byte offset of amountIn inside the sell calldata.
- * Uniswap V3 SwapRouter02 (no deadline): selector(4) + 4 fields × 32 = 132
- * PancakeSwap / SushiSwap / Aerodrome (with deadline): selector(4) + 5 fields × 32 = 164
+ * Uniswap V3 SwapRouter02 / PancakeSwap (no deadline): selector(4) + 4 fields × 32 = 132
+ * SushiSwap / Aerodrome (with deadline): selector(4) + 5 fields × 32 = 164
  */
 export function getSellAmountInOffset(quoter: Address): bigint {
   const UNISWAP_QUOTER = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a";
-  return quoter.toLowerCase() === UNISWAP_QUOTER.toLowerCase() ? 132n : 164n;
+  // Uniswap SwapRouter02 and PancakeSwap SmartRouter use no-deadline interface (offset 132)
+  if (quoter.toLowerCase() === UNISWAP_QUOTER.toLowerCase() ||
+      quoter.toLowerCase() === PANCAKE_QUOTER.toLowerCase()) return 132n;
+  // SushiSwap, Aerodrome use deadline-style interface (offset 164)
+  return 164n;
 }
 
 /** Patch a 32-byte uint256 value at a byte offset in hex calldata. */
@@ -268,4 +273,26 @@ export function patchCalldata(calldata: Hex, byteOffset: number, value: bigint):
   const hex = value.toString(16).padStart(64, "0");
   const charOffset = 2 + byteOffset * 2; // skip "0x"
   return (calldata.slice(0, charOffset) + hex + calldata.slice(charOffset + 64)) as Hex;
+}
+
+/**
+ * Encode N-leg arb data for ArbitrageExecutorV2.
+ * data = abi.encode(routers[], calldatas[], tokenOuts[], offsets[], tokenIn, minProfit)
+ */
+export function encodeMultiLegArbData(
+  legs: { router: Address; calldata: Hex; tokenOut: Address; offset: bigint }[],
+  tokenIn: Address,
+  minProfit: bigint,
+): Hex {
+  return encodeAbiParameters(
+    parseAbiParameters("address[], bytes[], address[], uint256[], address, uint256"),
+    [
+      legs.map(l => l.router),
+      legs.map(l => l.calldata),
+      legs.map(l => l.tokenOut),
+      legs.map(l => l.offset),
+      tokenIn,
+      minProfit,
+    ],
+  );
 }

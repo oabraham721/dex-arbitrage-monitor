@@ -76,7 +76,11 @@ contract ArbitrageExecutor {
 
         // Verify profit
         uint256 finalBal = IERC20(p.tokenIn).balanceOf(address(this));
-        if (finalBal < assets + p.minProfit) revert InsufficientProfit(finalBal - assets, p.minProfit);
+        uint256 required = assets + p.minProfit;
+        if (finalBal < required) {
+            uint256 shortfall = required - finalBal;
+            revert InsufficientProfit(0, shortfall);
+        }
 
         // Approve Morpho to pull back the borrowed amount
         IERC20(p.tokenIn).forceApprove(MORPHO, assets);
