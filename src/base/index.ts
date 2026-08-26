@@ -376,7 +376,7 @@ async function scan(): Promise<void> {
           `    optimal: ${usdc(optimal.optimalSizeUsdc)} trade → ${usdc(optimal.peakNetProfit)} peak profit` +
           ` | breakeven at ${usdc(optimal.maxBreakevenSize)}`,
         );
-        if (optimal.peakNetProfit > 0n) {
+        if (result.netProfit >= 50_000n) {
           await logToNotion(result, blockNumber, optimal.peakNetProfit, optimal.optimalSizeUsdc);
         }
       })

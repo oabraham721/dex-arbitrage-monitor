@@ -1,0 +1,26 @@
+name: Avalanche Arbitrage Monitor
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run Avalanche monitor for ~5.5 hours
+        env:
+          AVAX_RPC_URL: ${{ secrets.AVAX_RPC_URL }}
+          AVAX_TRADE_SIZE_USDC: "1000"
+          AVAX_TRADE_SIZE_WAVAX: "50"
+          AVAX_MIN_NET_PROFIT_USDC: "0.01"
+          AVAX_EXECUTION_COST_BUFFER: "0.05"
+        run: timeout 19800 npx tsx src/avalanche/index.ts || true
