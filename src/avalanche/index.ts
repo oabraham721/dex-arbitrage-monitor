@@ -195,6 +195,8 @@ async function scan(): Promise<void> {
   const allResults = await callMulticall(allCalls);
 
   const blockNumber = BigInt(allResults[0]!.returnData);
+  if (blockNumber === lastBlock) return; // same block, skip processing
+  lastBlock = blockNumber;
   const basefee = BigInt(allResults[1]!.returnData);
   const buyResults = allResults.slice(metaCalls.length, metaCalls.length + buyRequests.length);
   const sellResults = allResults.slice(metaCalls.length + buyRequests.length);
@@ -280,6 +282,8 @@ async function scan(): Promise<void> {
 }
 
 // Main loop
+let lastBlock = 0n;
+
 async function main(): Promise<void> {
   console.log("Avalanche Arbitrage Monitor");
   console.log(`  Pairs: ${config.pairs.map(p => p.name).join(", ")}`);
@@ -288,16 +292,12 @@ async function main(): Promise<void> {
   console.log(`  Min profit: ${usdc(config.minimumProfit)} | Buffer: ${usdc(config.executionCostBuffer)}`);
   console.log("");
 
-  // First scan populates buy cache (no sell results yet)
-  await scan();
-
-  // Continuous scanning
   while (true) {
-    await new Promise(resolve => setTimeout(resolve, config.pollIntervalMs));
     try {
       await scan();
     } catch (error) {
       console.error(`Scan error: ${error instanceof Error ? error.message : error}`);
+      await new Promise(resolve => setTimeout(resolve, 1_000));
     }
   }
 }
