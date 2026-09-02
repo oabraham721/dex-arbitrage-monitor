@@ -23,4 +23,6 @@ jobs:
           AVAX_TRADE_SIZE_WAVAX: "50"
           AVAX_MIN_NET_PROFIT_USDC: "0.01"
           AVAX_EXECUTION_COST_BUFFER: "0.05"
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
         run: timeout 19800 npx tsx src/avalanche/index.ts || true

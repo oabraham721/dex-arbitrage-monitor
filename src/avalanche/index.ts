@@ -11,6 +11,7 @@ import {
 } from "viem";
 import { avalanche } from "viem/chains";
 import { config, type Pair, type Route } from "./config.js";
+import { logToNotion } from "./notion.js";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
@@ -272,6 +273,7 @@ async function scan(): Promise<void> {
         ` | output ${usdc(opp.grossOutput)} | gas ${usdc(opp.gasCost)}` +
         ` | buffer ${usdc(config.executionCostBuffer)} | net ${usdc(opp.netProfit)} | gross ${opp.grossBps} bps`,
       );
+      await logToNotion(opp, blockNumber);
     }
     if (profitable.length > 10) console.log(`  ... and ${profitable.length - 10} more`);
   }
